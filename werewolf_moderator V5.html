@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>เกมมนุษย์หมาป่า (PWA)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="manifest.json">
+<style>
+  body { background-color: #0d0d0d; color: #e0e0e0; font-family: sans-serif; margin: 0; padding: 20px; }
+  h1 { color: #ff9800; }
+  .player { padding: 8px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+  .status { margin-left: 10px; font-weight: bold; }
+  .alive { color: #e0e0e0; }
+  .protected { color: #2196f3; }
+  .dead { color: #f44336; text-decoration: line-through; }
+  .critical { color: #ff5722; }
+  .Hope { color: #ffffdb; }
+  select, button, input { background: #1e1e1e; color: #fff; border: 1px solid #444; padding: 5px 8px; border-radius: 4px; }
+  button:hover { background: #333; cursor: pointer; }
+  input { width: 150px; margin-right: 5px; }
+  body.day { background-color: #778899; }
+  body.night { background-color: #0d0d40; }
+</style>
+</head>
+<body class="day">
+<h1>เกมมนุษย์หมาป่า</h1>
+<div>คืนที่: <span id="nightCount">0</span> | สถานะ: <span id="phaseStatus">กลางวัน</span></div>
+<div>
+  <input id="playerName" placeholder="ชื่อตัวละคร">
+  <button onclick="addPlayer()">เพิ่มผู้เล่น</button>
+  <input id="newRole" placeholder="เพิ่มบทใหม่">
+  <button onclick="addNewRole()">เพิ่มบท</button>
+  <button onclick="saveData()">บันทึกผู้เล่นและบทบาท</button>
+  <button onclick="loadData()">โหลดผู้เล่นและบทบาท</button>
+  <button onclick="clearData()">🧹 ล้างข้อมูล</button>
+</div>
+<div id="players"></div>
+<div style="margin-top: 15px;">
+  <button onclick="nextNight()">เปลี่ยนกลางวัน/กลางคืน</button>
+  <button onclick="resetRoles()">รีเซ็ตบทบาท</button>
+  <button onclick="resetGame()">รีเซ็ตเกม</button>
+  <button onclick="randomRoles()">🎲 สุ่มบทบาท</button>
+</div>
+<div style="margin-top: 10px;">
+  <strong>จำนวนหมาป่ารวมลูกหมาป่า: </strong><span id="wolfCount">0</span> |
+  <strong>จำนวนผู้เล่นอื่น: </strong><span id="otherCount">0</span>
+</div>
+<div style="margin-top: 10px;">
+  <strong>เลือกรวมบทบาทที่จะใช้ในรอบนี้:</strong>
+  <div id="roleCheckboxes" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 5px; background: #1e1e1e; padding: 10px; border-radius: 4px;"></div>
+</div>
+
+<script>
+let players = [];
+let isNight = false;
+let nightCount = 0;
+let roles = ["เฟรม", "กระต่าย", "ข้าว", "อิม", "บีม", "บุด", "เดียร์", "ส้ม", "ผักกาด", "เก๋", "รส", "แพท", "พลอย"];
+
+if (localStorage.getItem('customRoles')) roles = JSON.parse(localStorage.getItem('customRoles'));
+if (localStorage.getItem('werewolfPlayers')) players = JSON.parse(localStorage.getItem('werewolfPlayers'));
+
+function addPlayer() {
+  const name = document.getElementById('playerName').value.trim();
+  if (!name) return;
+  players.push({ name, role: '', alive: true, status: 'รอด', protectedNight: -2, willBeKilled: false });
+  document.getElementById('playerName').value = '';
+  renderPlayers();
+}
+
+function addNewRole() {
+  const newRole = document.getElementById('newRole').value.trim();
+  if (!newRole) return;
+  if (!roles.includes(newRole)) {
+    roles.push(newRole);
+    localStorage.setItem('customRoles', JSON.stringify(roles));
+    alert(`เพิ่มบท ${newRole} เรียบร้อย`);
+    document.getElementById('newRole').value = '';
+    renderPlayers();
+    renderRoleCheckboxes(); // อัปเดตช่องติ๊กเมื่อเพิ่มบทใหม่
+  } else alert('บทนี้มีอยู่แล้ว');
+}
+
+function setRole(index, role) { players[index].role = role; renderPlayers(); }
+function setStatus(index, status) {
+  const p = players[index];
+  if (status === 'ปางตาย' && p.name !== 'หนุ่มถึก') { alert('ปางตายใช้ได้เฉพาะหนุ่มถึก'); return; }
+  p.status = status;
+  if (status === 'ตาย') p.alive = false;
+  renderPlayers();
+}
+
+function nextNight() {
+  isNight = !isNight;
+  document.body.className = isNight ? 'night' : 'day';
+  document.getElementById('phaseStatus').textContent = isNight ? 'กลางคืน' : 'กลางวัน';
+  if (!isNight) players.forEach(p => { if (p.status==='ปกป้อง') p.status='รอด'; if (p.status==='ตาย') p.alive=false; });
+  else { nightCount++; document.getElementById('nightCount').textContent=nightCount; }
+  renderPlayers();
+}
+
+function resetRoles() { players.forEach(p=>{p.role='';p.status=p.alive?'รอด':'ตาย';p.protectedNight=-2;p.willBeKilled=false;}); renderPlayers(); }
+function resetGame() { players.forEach(p=>{p.role='';p.alive=true;p.status='รอด';p.protectedNight=-2;p.willBeKilled=false;}); nightCount=0;document.getElementById('nightCount').textContent=0;document.getElementById('phaseStatus').textContent='กลางวัน';document.body.className='day';renderPlayers();}
+function removePlayer(i){players.splice(i,1);renderPlayers();}
+
+function renderPlayers(){
+  const container=document.getElementById('players'); container.innerHTML='';
+  let wolfCount=0,otherCount=0;
+  players.forEach((p,i)=>{
+    const div=document.createElement('div'); div.className='player';
+    let statusClass='alive'; if(p.status==='ตาย') statusClass='dead'; else if(p.status==='ปกป้อง') statusClass='protected'; else if(p.status==='ปางตาย') statusClass='critical'; else if(p.status==='ได้พร') statusClass='Hope';
+    div.innerHTML=`<span class='${statusClass}'>${p.name}</span>
+      <select onchange="setRole(${i},this.value)"><option value=''>เลือกบทบาท</option>${roles.map(r=>`<option value='${r}' ${p.role===r?'selected':''}>${r}</option>`).join('')}</select>
+      <select onchange="setStatus(${i},this.value)"><option value='รอด' ${p.status==='รอด'?'selected':''}>รอด</option><option value='ปกป้อง' ${p.status==='ปกป้อง'?'selected':''}>ปกป้อง</option><option value='ปางตาย' ${p.status==='ปางตาย'?'selected':''}>ปางตาย</option><option value='ตาย' ${p.status==='ตาย'?'selected':''}>ตาย</option><option value='กลายเป็นหมาป่า' ${p.status==='กลายเป็นหมาป่า'?'selected':''}>กลายเป็นหมาป่า</option><option value='ได้พร' ${p.status==='ได้พร'?'selected':''}>ได้พร</option></select>
+      <button onclick='removePlayer(${i})'>ลบ</button>`;
+    container.appendChild(div);
+    if(p.alive){if(p.name==='หมาป่า1'||p.name==='หมาป่า'||p.name==='ลูกหมาป่า'||p.name==='หมาป่า2'||p.status==='กลายเป็นหมาป่า'||p.name==='หมา1'||p.name==='หมา2'||p.name==='หมาป่าเดียวดาย') wolfCount++; else otherCount++;}  
+  });
+  document.getElementById('wolfCount').textContent=wolfCount;
+  document.getElementById('otherCount').textContent=otherCount;
+}
+
+function saveData(){localStorage.setItem('werewolfPlayers',JSON.stringify(players)); localStorage.setItem('customRoles',JSON.stringify(roles)); alert('บันทึกเรียบร้อย');}
+function loadData(){
+  if(localStorage.getItem('customRoles')) roles=JSON.parse(localStorage.getItem('customRoles')); 
+  if(localStorage.getItem('werewolfPlayers')) players=JSON.parse(localStorage.getItem('werewolfPlayers')); 
+  renderPlayers(); 
+  renderRoleCheckboxes(); // อัปเดตช่องติ๊กเมื่อโหลดข้อมูล
+  alert('โหลดเรียบร้อย');
+}
+function clearData() {
+  localStorage.removeItem("customRoles");
+  localStorage.removeItem("werewolfPlayers");
+  roles = ["เฟรม", "กระต่าย", "ข้าว", "อิม", "บีม", "บุด", "เดียร์", "ส้ม", "ผักกาด", "เก๋", "รส", "แพท", "พลอย"];
+  players = [];
+  renderPlayers();
+  renderRoleCheckboxes(); // อัปเดตช่องติ๊กเมื่อล้างข้อมูล
+  alert("🧹 เคลียร์ข้อมูลเรียบร้อยแล้ว!");
+}
+
+function randomRoles() {
+  if (players.length === 0) {
+    alert("กรุณาเพิ่มผู้เล่นก่อนสุ่มบทบาท");
+    return;
+  }
+
+  const checkboxes = document.querySelectorAll('#roleCheckboxes input[type="checkbox"]:checked');
+  const selectedRoles = Array.from(checkboxes).map(cb => cb.value);
+
+  if (selectedRoles.length < players.length) {
+    alert(`บทบาทที่เลือก (${selectedRoles.length} บท) น้อยกว่าจำนวนผู้เล่น (${players.length} คน) กรุณาติ๊กเลือกบทบาทเพิ่ม`);
+    return;
+  }
+
+  let shuffledRoles = [...selectedRoles].sort(() => Math.random() - 0.5);
+
+  players.forEach((player, index) => {
+    player.role = shuffledRoles[index];
+  });
+
+  renderPlayers();
+}
+
+function renderRoleCheckboxes() {
+  const container = document.getElementById('roleCheckboxes');
+  if (!container) return;
+  container.innerHTML = '';
+
+  roles.forEach(role => {
+    const label = document.createElement('label');
+    label.style.display = 'inline-flex';
+    label.style.alignItems = 'center';
+    label.style.cursor = 'pointer';
+    label.innerHTML = `<input type="checkbox" value="${role}" checked style="margin-right: 4px;"> ${role}`;
+    container.appendChild(label);
+  });
+}
+
+// เรียกฟังก์ชันสร้างช่องติ๊กทันทีเมื่อเปิดหน้าเว็บ
+renderRoleCheckboxes();
+renderPlayers();
+</script>
+
+</body>
+</html>
